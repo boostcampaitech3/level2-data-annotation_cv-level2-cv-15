@@ -2,6 +2,7 @@ import os
 import os.path as osp
 import time
 import math
+import random
 from datetime import timedelta
 from argparse import ArgumentParser
 
@@ -10,6 +11,7 @@ from torch import cuda
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 from tqdm import tqdm
+import numpy as np
 
 from east_dataset import EASTDataset
 from dataset import SceneTextDataset
@@ -37,6 +39,8 @@ def parse_args():
     parser.add_argument('--max_epoch', type=int, default=200)
     parser.add_argument('--save_interval', type=int, default=5)
 
+    parser.add_argument('--seed', type=int, default=2021)
+
     args = parser.parse_args()
 
     if args.input_size % 32 != 0:
@@ -44,9 +48,19 @@ def parse_args():
 
     return args
 
+def set_seed(seed) :
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed) # if use multi-GPU
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    print(f"seed : {seed}")
 
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, project, entity, name):
+                learning_rate, max_epoch, save_interval, project, entity, name, seed):
     
     wandb.init(project=project, entity=entity, name = name)
     wandb.config = {
@@ -55,6 +69,7 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
         "batch_size": batch_size
     }
 
+    set_seed(seed)
     dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size)
     dataset = EASTDataset(dataset)
     num_batches = math.ceil(len(dataset) / batch_size)
