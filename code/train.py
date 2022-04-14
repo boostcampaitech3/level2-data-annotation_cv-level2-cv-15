@@ -14,7 +14,7 @@ from tqdm import tqdm
 from east_dataset import EASTDataset
 from dataset import SceneTextDataset
 from model import EAST
-
+import wandb
 
 def parse_args():
     parser = ArgumentParser()
@@ -24,7 +24,9 @@ def parse_args():
                         default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/ICDAR17_Korean'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR',
                                                                         'trained_models'))
-
+    parser.add_argument('--project', type=str, default = "data-annotation")
+    parser.add_argument('--entity', type=str, default ="boostcampaitech3")
+    parser.add_argument('--name', type=str)
     parser.add_argument('--device', default='cuda' if cuda.is_available() else 'cpu')
     parser.add_argument('--num_workers', type=int, default=4)
 
@@ -44,7 +46,15 @@ def parse_args():
 
 
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval):
+                learning_rate, max_epoch, save_interval, project, entity, name):
+    
+    wandb.init(project=project, entity=entity, name = name)
+    wandb.config = {
+        "learning_rate": learning_rate,
+        "epoch": max_epoch,
+        "batch_size": batch_size
+    }
+
     dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size)
     dataset = EASTDataset(dataset)
     num_batches = math.ceil(len(dataset) / batch_size)
@@ -82,6 +92,8 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
 
         print('Mean loss: {:.4f} | Elapsed time: {}'.format(
             epoch_loss / num_batches, timedelta(seconds=time.time() - epoch_start)))
+
+        wandb.log({"Mean_loss": epoch_loss / num_batches})
 
         if (epoch + 1) % save_interval == 0:
             if not osp.exists(model_dir):
