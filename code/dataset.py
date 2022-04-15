@@ -335,7 +335,7 @@ def filter_vertices(vertices, labels, ignore_under=0, drop_under=0):
 
 class SceneTextDataset(Dataset):
     def __init__(self, root_dir, split='train', image_size=1024, crop_size=512, color_jitter=True,
-                 normalize=True):
+                 normalize=True, ElasticTransform=True, RandomRotate90=True):
         with open(osp.join(root_dir, 'ufo/{}.json'.format(split)), 'r') as f:
             anno = json.load(f)
 
@@ -345,6 +345,8 @@ class SceneTextDataset(Dataset):
 
         self.image_size, self.crop_size = image_size, crop_size
         self.color_jitter, self.normalize = color_jitter, normalize
+        self.ElasticTransform = ElasticTransform
+        self.RandomRotate90 = RandomRotate90
 
     def __len__(self):
         return len(self.image_fnames)
@@ -374,8 +376,13 @@ class SceneTextDataset(Dataset):
         funcs = []
         if self.color_jitter:
             funcs.append(A.ColorJitter(0.5, 0.5, 0.5, 0.25))
+        if self.ElasticTransform:
+            funcs.append(ElasticTransform(p=1, alpha=1.0, sigma=50.0, alpha_affine=45, interpolation=3))
+        if self.RandomRotate90:
+            funcs.append(A.RandomRotate90(p=0.5))
         if self.normalize:
             funcs.append(A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
+
         transform = A.Compose(funcs)
 
         image = transform(image=image)['image']
