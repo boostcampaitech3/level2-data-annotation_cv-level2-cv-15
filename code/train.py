@@ -31,7 +31,7 @@ def parse_args():
                         default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/ICDAR17_Korean'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR',
                                                                         'trained_models'))
-    parser.add_argument('--project', type=str, default = "data-annotation(optimizer)")
+    parser.add_argument('--project', type=str, default = "data-annotation")
     parser.add_argument('--entity', type=str, default ="boostcampaitech3")
     parser.add_argument('--name', type=str)
     parser.add_argument('--device', default='cuda' if cuda.is_available() else 'cpu')
