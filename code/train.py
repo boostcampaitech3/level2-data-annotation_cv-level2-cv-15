@@ -31,7 +31,7 @@ def parse_args():
                         default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/ICDAR17_Korean'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR',
                                                                         'trained_models'))
-    parser.add_argument('--project', type=str, default = "data-annotation")
+    parser.add_argument('--project', type=str, default = "data-annotation(optimizer)")
     parser.add_argument('--entity', type=str, default ="boostcampaitech3")
     parser.add_argument('--name', type=str)
     parser.add_argument('--device', default='cuda' if cuda.is_available() else 'cpu')
@@ -47,7 +47,8 @@ def parse_args():
     ## Our argument
     parser.add_argument('--seed', type=int, default=2021)
     parser.add_argument('--optimizer', type=str, default = "Adam")
-    parser.add_argument('--exp_name', type=str)
+    parser.add_argument('--exp_name', type=str, default = "exp")
+    parser.add_argument('--scheduler', type=str, default = 'MultiStepLR')
 
     args = parser.parse_args()
 
@@ -69,7 +70,7 @@ def set_seed(seed) :
     print(f"seed : {seed}")
 
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, project, entity, name, seed, optimizer, exp_name):
+                learning_rate, max_epoch, save_interval, project, entity, name, seed, optimizer, exp_name, scheduler):
     
     wandb.init(project=project, entity=entity, name = name)
     wandb.config = {
@@ -93,6 +94,7 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = EAST()
     model.to(device)
+    # optimizer
     if optimizer in dir(torch.optim):
         opt_module = getattr(import_module('torch.optim'), optimizer)
         optimizer = opt_module(model.parameters(), lr=learning_rate)
@@ -101,7 +103,18 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
     elif optimizer == 'AdamP':
         optimizer = adamp.AdamP(model.parameters(), lr=learning_rate)
     
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
+    # scheduler
+    if scheduler == 'MultiStepLR':
+        scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
+    elif scheduler == 'MultiplicativeLR':
+        lmbda = lambda epoch: 0.95
+        scheduler = lr_scheduler.MultiplicativeLR(optimizer, lr_lambda = lmbda)
+    elif scheduler == 'CosineAnnealingLR':
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max = 50)
+    elif scheduler == 'CosineAnnealingWarmRestarts':
+        scheduler = lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0 = 50, T_mult = 2)
+    elif scheduler == 'ReduceLROnPlateau':
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer)
 
     model.train()
     for epoch in range(max_epoch):
@@ -124,8 +137,11 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
                     'IoU loss': extra_info['iou_loss']
                 }
                 pbar.set_postfix(val_dict)
-
-        scheduler.step()
+        
+        if type(scheduler) == torch.optim.lr_scheduler.ReduceLROnPlateau:
+            scheduler.step(epoch_loss)
+        else:
+            scheduler.step()
 
         print('Mean loss: {:.4f} | Elapsed time: {}'.format(
             epoch_loss / num_batches, timedelta(seconds=time.time() - epoch_start)))
