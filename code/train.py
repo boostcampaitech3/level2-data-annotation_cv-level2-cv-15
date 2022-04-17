@@ -16,6 +16,8 @@ import numpy as np
 from east_dataset import EASTDataset
 from dataset import SceneTextDataset
 from model import EAST
+from dataset import ComposedTransformation
+
 import wandb
 
 def parse_args():
@@ -38,6 +40,7 @@ def parse_args():
     parser.add_argument('--learning_rate', type=float, default=1e-3)
     parser.add_argument('--max_epoch', type=int, default=200)
     parser.add_argument('--save_interval', type=int, default=5)
+    parser.add_argument('--transform', type = bool, default = False)
 
     parser.add_argument('--seed', type=int, default=2021)
 
@@ -60,7 +63,7 @@ def set_seed(seed) :
     print(f"seed : {seed}")
 
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, project, entity, name, seed):
+                learning_rate, max_epoch, save_interval, project, entity, name, seed, transform):
     
     wandb.init(project=project, entity=entity, name = name)
     wandb.config = {
@@ -70,7 +73,19 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
     }
 
     set_seed(seed)
-    dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size)
+
+    if transform:
+        transform = ComposedTransformation(
+            rotate_range=30, crop_aspect_ratio=1.0, crop_size=(0.2, 0.2),
+            hflip=True, vflip=True, random_translate=False,
+            resize_to=512,
+            min_image_overlap=0.9, min_bbox_overlap=0.99, min_bbox_count=1, allow_partial_occurrence=True,
+            max_random_trials=1000,
+        )
+    else:
+        transform = None
+
+    dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size, transform = transform)
     dataset = EASTDataset(dataset)
     num_batches = math.ceil(len(dataset) / batch_size)
     train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)

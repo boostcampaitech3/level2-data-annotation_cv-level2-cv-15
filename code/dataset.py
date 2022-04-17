@@ -10,6 +10,7 @@ import albumentations as A
 from torch.utils.data import Dataset
 from shapely.geometry import Polygon
 
+from imageio import imread
 
 def cal_distance(x1, y1, x2, y2):
     '''calculate the Euclidean distance'''
@@ -221,6 +222,7 @@ def crop_img(img, vertices, labels, length):
         start_w = int(np.random.rand() * remain_w)
         start_h = int(np.random.rand() * remain_h)
         flag = is_cross_text([start_w, start_h], length, new_vertices[labels==1,:])
+
     box = (start_w, start_h, start_w + length, start_h + length)
     region = img.crop(box)
     if new_vertices.size == 0:
@@ -333,9 +335,42 @@ def filter_vertices(vertices, labels, ignore_under=0, drop_under=0):
     return new_vertices, new_labels
 
 
+def parse_vertices(vertices):
+    n_pts = len(vertices)
+    assert n_pts % 2 == 0, 'Wrong points! It has odd vertices.'
+    vertices = np.array(vertices)
+    return [
+        np.vstack(
+            [vertices[idx:idx + 2],
+             vertices[n_pts - 2 - idx:n_pts - idx]]).flatten()
+        for idx in range(int(n_pts / 2) - 1)
+    ]
+
+def devide_poly(poly, direction=None):
+    poly = np.float32(poly)
+    n_pts = poly.shape[0]
+    assert n_pts % 2 == 0
+    quads = None
+
+    def unroll(indices):
+        return list(zip(indices[:-1], indices[1:]))
+
+    # polygon하나를 인접한 사각형 여러개로 쪼갠다.
+    indices = list(range(n_pts))
+    
+    if direction == 'Vertical':
+        right_pts = unroll(indices[1:n_pts // 2 + 1]) # (1, 2), (2, 3), ... (4, 5)
+        left_pts = unroll([0] + indices[:n_pts // 2:-1]) # (0, 9), (9, 8), ... (7, 6)
+        quads = [poly[[i, j, k, l]].flatten() for (j, k), (i, l) in zip(right_pts, left_pts)]
+    else:
+        upper_pts = unroll(indices[:n_pts // 2]) # (0, 1), (1, 2), ... (4, 5)
+        lower_pts = unroll(indices[n_pts // 2:])[::-1] # (8, 9), (7, 8), ... (6, 7)
+        quads = [poly[[i, j, k, l]].flatten() for (i, j), (k, l) in zip(upper_pts, lower_pts)]
+    
+    return quads
+
 class SceneTextDataset(Dataset):
-    def __init__(self, root_dir, split='train', image_size=1024, crop_size=512, color_jitter=True,
-                 normalize=True, ElasticTransform=True, RandomRotate90=True):
+    def __init__(self, root_dir, split='train', image_size=1024, crop_size=512, color_jitter=True, normalize=True, transform=None):
         with open(osp.join(root_dir, 'ufo/{}.json'.format(split)), 'r') as f:
             anno = json.load(f)
 
@@ -345,8 +380,8 @@ class SceneTextDataset(Dataset):
 
         self.image_size, self.crop_size = image_size, crop_size
         self.color_jitter, self.normalize = color_jitter, normalize
-        self.ElasticTransform = ElasticTransform
-        self.RandomRotate90 = RandomRotate90
+        
+        self.transform = transform
 
     def __len__(self):
         return len(self.image_fnames)
@@ -357,18 +392,28 @@ class SceneTextDataset(Dataset):
 
         vertices, labels = [], []
         for word_info in self.anno['images'][image_fname]['words'].values():
-            vertices.append(np.array(word_info['points']).flatten())
-            labels.append(int(not word_info['illegibility']))
+            # points = devide_poly(word_info['points'], word_info['orientation'])
+            points = parse_vertices(word_info['points'])
+            vertices.extend(points)
+            labels.extend([int(not word_info['illegibility'])]*len(points))
+        
         vertices, labels = np.array(vertices, dtype=np.float32), np.array(labels, dtype=np.int64)
-
         vertices, labels = filter_vertices(vertices, labels, ignore_under=10, drop_under=1)
-
-        image = Image.open(image_fpath)
-        image, vertices = resize_img(image, vertices, self.image_size)
-        image, vertices = adjust_height(image, vertices)
-        image, vertices = rotate_img(image, vertices)
-        image, vertices = crop_img(image, vertices, labels, self.crop_size)
-
+        
+        if self.transform != None:
+            image = imread(image_fpath)
+            temp_vertices = vertices.reshape(-1, 4, 2)
+            mytrans = self.transform(image=image, word_bboxes=temp_vertices)
+            image = Image.fromarray(mytrans['image'])
+            vertices = mytrans['word_bboxes']
+        
+        else:
+            image = Image.open(image_fpath)
+            image, vertices = resize_img(image, vertices, self.image_size)
+            image, vertices = adjust_height(image, vertices)
+            image, vertices = rotate_img(image, vertices)
+            image, vertices = crop_img(image, vertices, labels, self.crop_size)
+        
         if image.mode != 'RGB':
             image = image.convert('RGB')
         image = np.array(image)
@@ -376,17 +421,12 @@ class SceneTextDataset(Dataset):
         funcs = []
         if self.color_jitter:
             funcs.append(A.ColorJitter(0.5, 0.5, 0.5, 0.25))
-        if self.ElasticTransform:
-            funcs.append(ElasticTransform(p=1, alpha=1.0, sigma=50.0, alpha_affine=45, interpolation=3))
-        if self.RandomRotate90:
-            funcs.append(A.RandomRotate90(p=0.5))
         if self.normalize:
             funcs.append(A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)))
-
         transform = A.Compose(funcs)
-
+        
         image = transform(image=image)['image']
         word_bboxes = np.reshape(vertices, (-1, 4, 2))
         roi_mask = generate_roi_mask(image, vertices, labels)
-
+        
         return image, word_bboxes, roi_mask
