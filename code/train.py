@@ -12,6 +12,11 @@ from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 import numpy as np
+import imgaug
+
+from importlib import import_module
+import madgrad
+import adamp
 
 from east_dataset import EASTDataset
 from dataset import SceneTextDataset
@@ -39,7 +44,10 @@ def parse_args():
     parser.add_argument('--max_epoch', type=int, default=200)
     parser.add_argument('--save_interval', type=int, default=5)
 
+    ## Our argument
     parser.add_argument('--seed', type=int, default=2021)
+    parser.add_argument('--optimizer', type=str, default = "Adam")
+    parser.add_argument('--exp_name', type=str)
 
     args = parser.parse_args()
 
@@ -57,10 +65,11 @@ def set_seed(seed) :
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     random.seed(seed)
+    imgaug.random.seed(seed)
     print(f"seed : {seed}")
 
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, project, entity, name, seed):
+                learning_rate, max_epoch, save_interval, project, entity, name, seed, optimizer, exp_name):
     
     wandb.init(project=project, entity=entity, name = name)
     wandb.config = {
@@ -70,15 +79,28 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
     }
 
     set_seed(seed)
+
+    def seed_worker(worker_id):
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
     dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size)
     dataset = EASTDataset(dataset)
     num_batches = math.ceil(len(dataset) / batch_size)
-    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, worker_init_fn=seed_worker)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = EAST()
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    if optimizer in dir(torch.optim):
+        opt_module = getattr(import_module('torch.optim'), optimizer)
+        optimizer = opt_module(model.parameters(), lr=learning_rate)
+    elif optimizer == 'MADGRAD':
+        optimizer = madgrad.MADGRAD(model.parameters(), lr=learning_rate)
+    elif optimizer == 'AdamP':
+        optimizer = adamp.AdamP(model.parameters(), lr=learning_rate)
+    
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
 
     model.train()
@@ -114,7 +136,7 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
             if not osp.exists(model_dir):
                 os.makedirs(model_dir)
 
-            ckpt_fpath = osp.join(model_dir, 'latest.pth')
+            ckpt_fpath = osp.join(model_dir, f'{exp_name}_latest.pth')
             torch.save(model.state_dict(), ckpt_fpath)
 
 
