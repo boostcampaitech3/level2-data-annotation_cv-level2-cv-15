@@ -31,7 +31,7 @@ def parse_args():
                         default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/ICDAR17_Korean'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR',
                                                                         'trained_models'))
-    parser.add_argument('--project', type=str, default = "data-annotation(optimizer)")
+    parser.add_argument('--project', type=str, default = "data-annotation")
     parser.add_argument('--entity', type=str, default ="boostcampaitech3")
     parser.add_argument('--name', type=str)
     parser.add_argument('--device', default='cuda' if cuda.is_available() else 'cpu')
@@ -48,8 +48,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=2021)
     parser.add_argument('--optimizer', type=str, default = "Adam")
     parser.add_argument('--exp_name', type=str, default = "exp")
-    parser.add_argument('--scheduler', type=str, default = 'MultiStepLR')
-
+    
     args = parser.parse_args()
 
     if args.input_size % 32 != 0:
@@ -70,7 +69,7 @@ def set_seed(seed) :
     print(f"seed : {seed}")
 
 def do_training(data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
-                learning_rate, max_epoch, save_interval, project, entity, name, seed, optimizer, exp_name, scheduler):
+                learning_rate, max_epoch, save_interval, project, entity, name, seed, optimizer, exp_name):
     
     wandb.init(project=project, entity=entity, name = name)
     wandb.config = {
@@ -103,22 +102,11 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
     elif optimizer == 'AdamP':
         optimizer = adamp.AdamP(model.parameters(), lr=learning_rate)
     
-    # scheduler
-    if scheduler == 'MultiStepLR':
-        scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
-    elif scheduler == 'MultiplicativeLR':
-        lmbda = lambda epoch: 0.95
-        scheduler = lr_scheduler.MultiplicativeLR(optimizer, lr_lambda = lmbda)
-    elif scheduler == 'CosineAnnealingLR':
-        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max = 50)
-    elif scheduler == 'CosineAnnealingWarmRestarts':
-        scheduler = lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0 = 50, T_mult = 2)
-    elif scheduler == 'ReduceLROnPlateau':
-        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer)
+    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
 
     model.train()
     for epoch in range(max_epoch):
-        epoch_loss, epoch_start = 0, time.time()
+        epoch_loss, epoch_Cls, epoch_Angle, epoch_IoU, epoch_start = 0, 0, 0, 0, time.time()
         with tqdm(total=num_batches) as pbar:
             for img, gt_score_map, gt_geo_map, roi_mask in train_loader:
                 pbar.set_description('[Epoch {}]'.format(epoch + 1))
@@ -130,6 +118,9 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
 
                 loss_val = loss.item()
                 epoch_loss += loss_val
+                epoch_Cls += extra_info['cls_loss']
+                epoch_Angle += extra_info['angle_loss']
+                epoch_IoU += extra_info['iou_loss']
 
                 pbar.update(1)
                 val_dict = {
@@ -146,7 +137,10 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
         print('Mean loss: {:.4f} | Elapsed time: {}'.format(
             epoch_loss / num_batches, timedelta(seconds=time.time() - epoch_start)))
 
-        wandb.log({"Mean_loss": epoch_loss / num_batches})
+        wandb.log({ 'Mean Cls loss': epoch_Cls / num_batches, 
+                    'Mean Angle loss': epoch_Angle / num_batches,
+                    'Mean IoU loss': epoch_IoU / num_batches,
+                    'Mean_loss': epoch_loss / num_batches})
 
         if (epoch + 1) % save_interval == 0:
             if not osp.exists(model_dir):
