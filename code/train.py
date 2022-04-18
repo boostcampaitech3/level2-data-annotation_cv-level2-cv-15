@@ -129,10 +129,7 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
                 }
                 pbar.set_postfix(val_dict)
         
-        if type(scheduler) == torch.optim.lr_scheduler.ReduceLROnPlateau:
-            scheduler.step(epoch_loss)
-        else:
-            scheduler.step()
+        scheduler.step()
 
         print('Mean loss: {:.4f} | Elapsed time: {}'.format(
             epoch_loss / num_batches, timedelta(seconds=time.time() - epoch_start)))
