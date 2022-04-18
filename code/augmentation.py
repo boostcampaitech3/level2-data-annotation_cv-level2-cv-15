@@ -7,6 +7,10 @@ import numpy.random as npr
 from albumentations.pytorch import ToTensorV2
 from shapely.geometry import Polygon
 
+import os.path as osp
+import json
+from imageio import imread
+
 
 def transform_by_matrix(matrix, image=None, oh=None, ow=None, word_bboxes=[],
                         by_word_char_bboxes=[], masks=[], inverse=False):
