@@ -47,8 +47,8 @@ def parse_args():
     ## Our argument
     parser.add_argument('--seed', type=int, default=2021)
     parser.add_argument('--optimizer', type=str, default = "Adam")
-    parser.add_argument('--exp_name', type=str)
-
+    parser.add_argument('--exp_name', type=str, default = "exp")
+    
     args = parser.parse_args()
 
     if args.input_size % 32 != 0:
@@ -93,6 +93,7 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = EAST()
     model.to(device)
+    # optimizer
     if optimizer in dir(torch.optim):
         opt_module = getattr(import_module('torch.optim'), optimizer)
         optimizer = opt_module(model.parameters(), lr=learning_rate)
@@ -105,7 +106,7 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
 
     model.train()
     for epoch in range(max_epoch):
-        epoch_loss, epoch_start = 0, time.time()
+        epoch_loss, epoch_Cls, epoch_Angle, epoch_IoU, epoch_start = 0, 0, 0, 0, time.time()
         with tqdm(total=num_batches) as pbar:
             for img, gt_score_map, gt_geo_map, roi_mask in train_loader:
                 pbar.set_description('[Epoch {}]'.format(epoch + 1))
@@ -117,6 +118,9 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
 
                 loss_val = loss.item()
                 epoch_loss += loss_val
+                epoch_Cls += extra_info['cls_loss']
+                epoch_Angle += extra_info['angle_loss']
+                epoch_IoU += extra_info['iou_loss']
 
                 pbar.update(1)
                 val_dict = {
@@ -124,13 +128,16 @@ def do_training(data_dir, model_dir, device, image_size, input_size, num_workers
                     'IoU loss': extra_info['iou_loss']
                 }
                 pbar.set_postfix(val_dict)
-
+        
         scheduler.step()
 
         print('Mean loss: {:.4f} | Elapsed time: {}'.format(
             epoch_loss / num_batches, timedelta(seconds=time.time() - epoch_start)))
 
-        wandb.log({"Mean_loss": epoch_loss / num_batches})
+        wandb.log({ 'Mean Cls loss': epoch_Cls / num_batches, 
+                    'Mean Angle loss': epoch_Angle / num_batches,
+                    'Mean IoU loss': epoch_IoU / num_batches,
+                    'Mean_loss': epoch_loss / num_batches})
 
         if (epoch + 1) % save_interval == 0:
             if not osp.exists(model_dir):
