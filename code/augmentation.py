@@ -410,3 +410,59 @@ class ComposedTransformation:
         del geo_result['image']
 
         return dict(image=final_result['image'], **geo_result)
+
+class CropMethod_1:
+    def __init__(
+        self, crop_sizes=[512, 640, 768, 896, 1024], max_random_trials=30, 
+        brightness=0, contrast=0, saturation=0, hue=0,
+        normalize=True, mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5), to_tensor=False
+    ):
+        self.crop_sizes = crop_sizes
+        self.max_random_trials = max_random_trials
+        
+        alb_fns = []
+        if brightness > 0 or contrast > 0 or saturation > 0 or hue > 0:
+            alb_fns.append(A.ColorJitter(
+                brightness=brightness, contrast=contrast, saturation=saturation, hue=hue, p=1))
+
+        if normalize:
+            kwargs = dict()
+            if mean is not None:
+                kwargs['mean'] = mean
+            if std is not None:
+                kwargs['std'] = std
+            alb_fns.append(A.Normalize(mean=mean, std=std))
+
+        if to_tensor:
+            alb_fns.append(ToTensorV2())
+
+        self.alb_transform_fn = A.Compose(alb_fns)
+
+
+    def __call__(self, image, vertices, labels):
+                 
+        crop_size = random.choice(self.crop_sizes)
+
+        for _ in range(self.max_random_trials):
+            new_image, new_vertices = crop_img(image, vertices, labels, crop_size)
+            size = new_image.shape[:2]
+            margin = 1/30
+            check = False
+            for i in range(len(new_vertices)):
+                width = max(new_vertices[i][0::2]) - min(new_vertices[i][0::2])
+                height = max(new_vertices[i][1::2]) - min(new_vertices[i][1::2])
+
+                if (new_vertices[i][0::2] >= 0).all() and (new_vertices[i][0::2] <= size[0]).all() \
+                    and (new_vertices[i][1::2] >= 0).all() and (new_vertices[i][1::2] <= size[1]).all():
+                    check = True
+                    break
+
+            if check:
+                image, vertices = new_image, new_vertices
+                vertices, labels = filter_crop_vertices(size, vertices, labels)
+                break
+
+        image, vertices = resize_img(image, vertices, 512, keep_aspect_ratio=False)
+        image = self.alb_transform_fn(image=image)['image']
+
+        return image, vertices, labels
