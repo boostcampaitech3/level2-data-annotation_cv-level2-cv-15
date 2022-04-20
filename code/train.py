@@ -146,7 +146,8 @@ def do_training(data_dir, val_data_dir, model_dir, device, image_size, input_siz
     
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[max_epoch // 2], gamma=0.1)
 
-    
+    metric = 0
+    cnt = 0 
     for epoch in range(max_epoch):
         epoch_loss, epoch_Cls, epoch_Angle, epoch_IoU, epoch_start = 0, 0, 0, 0, time.time()
 
@@ -187,12 +188,7 @@ def do_training(data_dir, val_data_dir, model_dir, device, image_size, input_siz
                     'Mean IoU loss': epoch_IoU / num_batches,
                     'Mean_loss': epoch_loss / num_batches})
 
-        if (epoch + 1) % save_interval == 0:
-            if not osp.exists(model_dir):
-                os.makedirs(model_dir)
 
-            ckpt_fpath = osp.join(model_dir, f'{exp_name}_latest.pth')
-            torch.save(model.state_dict(), ckpt_fpath)
         
 
  ############validation########## 
@@ -263,12 +259,21 @@ def do_training(data_dir, val_data_dir, model_dir, device, image_size, input_siz
                     "val/f1_score": resDict['total']['hmean'],
                     "epoch":epoch+1})
 
+            if metric < resDict['total']['hmean']:
+                metric = resDict['total']['hmean']
+                if not osp.exists(model_dir):
+                    os.makedirs(model_dir)
+                ckpt_fpath = osp.join(model_dir, f'{exp_name}_best_epoch{epoch}.pth')
+                torch.save(model.state_dict(), ckpt_fpath)
+                print(f"save best model at epoch : {epoch}")
+            else:
+                cnt +=1
+                if cnt >= 10:
+                    print(f"early stopping : not updated for 10 times")
+                    break
+
 
         
-
-
-
-
 def main(args):
     do_training(**args.__dict__)
 
