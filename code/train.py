@@ -260,12 +260,16 @@ def do_training(data_dir, val_data_dir, model_dir, device, image_size, input_siz
                     "epoch":epoch+1})
 
             if metric < resDict['total']['hmean']:
+                if epoch:
+                    os.remove(osp.join(model_dir, f'{exp_name}_best_epoch{best_epoch}.pth'))
+                best_epoch = epoch+1
                 metric = resDict['total']['hmean']
                 if not osp.exists(model_dir):
                     os.makedirs(model_dir)
-                ckpt_fpath = osp.join(model_dir, f'{exp_name}_best_epoch{epoch}.pth')
+                ckpt_fpath = osp.join(model_dir, f'{exp_name}_best_epoch{best_epoch}.pth')
                 torch.save(model.state_dict(), ckpt_fpath)
-                print(f"save best model at epoch : {epoch}")
+                print(f"save best model at epoch : {epoch+1}")
+                cnt = 0
             else:
                 cnt +=1
                 if cnt >= 10:
