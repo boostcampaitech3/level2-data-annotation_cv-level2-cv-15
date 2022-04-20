@@ -24,6 +24,9 @@ from model import EAST
 import wandb
 from tqdm import tqdm
 
+from detect import get_bboxes
+from deteval import calc_deteval_metrics
+
 def parse_args():
     parser = ArgumentParser()
 
@@ -31,7 +34,7 @@ def parse_args():
     parser.add_argument('--data_dir', type=str,
                         default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/ICDAR17_Korean'))
     parser.add_argument('--val_data_dir', type=str,
-                        default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/camper'))
+                        default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/ICDAR17_Korean'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR',
                                                                         'trained_models'))
     parser.add_argument('--project', type=str, default = "data-annotation")
@@ -52,7 +55,7 @@ def parse_args():
     parser.add_argument('--optimizer', type=str, default = "Adam")
     parser.add_argument('--exp_name', type=str, default = "exp1")
 
-    parser.add_argument('--val_data', type=str, default = "train")  # ufo 폴더 안에 있는 valid에 사용할 데이터의 json파일 이름, None일 경우 valid 안함
+    parser.add_argument('--val_data', type=str, default = "val")  # ufo 폴더 안에 있는 valid에 사용할 데이터의 json파일 이름, None일 경우 valid 안함
     parser.add_argument('--val_image_size', type=str, default = 512)
     parser.add_argument('--val_input_size', type=str, default = 512)
 
@@ -108,7 +111,7 @@ def do_training(data_dir, val_data_dir, model_dir, device, image_size, input_siz
     train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, worker_init_fn=seed_worker)
 
     if val_data:
-        val_dataset = ValidSceneTextDataset(val_data_dir, split='train', image_size=val_image_size, crop_size=val_input_size, color_jitter=False)
+        val_dataset = ValidSceneTextDataset(val_data_dir, split=val_data, image_size=val_image_size, crop_size=val_input_size, color_jitter=False)
         val_dataset.load_image()
         print(f"Load valid data {len(val_dataset)}")
         valid_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, collate_fn=ValidSceneTextDataset.collate_fn)

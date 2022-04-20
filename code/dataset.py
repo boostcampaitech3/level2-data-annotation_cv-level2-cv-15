@@ -14,6 +14,8 @@ from shapely.geometry import Polygon
 from tqdm import tqdm
 from augmentation import ComposedTransformation, CropMethod_1
 
+from east_dataset import generate_score_geo_maps
+
 
 def cal_distance(x1, y1, x2, y2):
     '''calculate the Euclidean distance'''
@@ -499,8 +501,9 @@ class ValidSceneTextDataset(SceneTextDataset2):
             vertices, labels = np.array(vertices, dtype=np.float32), np.array(labels, dtype=np.int64)
 
             vertices, labels = filter_vertices(vertices, labels, ignore_under=10, drop_under=1)
+            image = Image.open(image_fpath)
             image, vertices = resize_img(image, vertices, self.image_size)
-
+            image = np.array(image)
             self.images.append(self.prep_fn(image=image)['image'])
             self.vertices.append(vertices.reshape(-1,4,2))
             self.labels.append(labels)
