@@ -14,8 +14,8 @@ from tqdm import tqdm
 import numpy as np
 
 from importlib import import_module
-# import madgrad
-# import adamp
+import madgrad
+import adamp
 
 from east_dataset import EASTDataset
 from dataset import SceneTextDataset, ValidSceneTextDataset
