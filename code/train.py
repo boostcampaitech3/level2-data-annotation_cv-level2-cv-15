@@ -12,11 +12,10 @@ from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 import numpy as np
-import imgaug
 
 from importlib import import_module
-import madgrad
-import adamp
+# import madgrad
+# import adamp
 
 from east_dataset import EASTDataset
 from dataset import SceneTextDataset, ValidSceneTextDataset
@@ -31,10 +30,10 @@ def parse_args():
     parser = ArgumentParser()
 
     # Conventional args
-    parser.add_argument('--data_dir', type=str,
-                        default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/ICDAR17_Korean'))
+    parser.add_argument('--data_dir', type=str,default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/ICDAR17_Korean'))
     parser.add_argument('--val_data_dir', type=str,
                         default=os.environ.get('SM_CHANNEL_TRAIN', '../input/data/ICDAR17_Korean'))
+
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR',
                                                                         'trained_models'))
     parser.add_argument('--project', type=str, default = "data-annotation")
@@ -49,6 +48,7 @@ def parse_args():
     parser.add_argument('--learning_rate', type=float, default=1e-3)
     parser.add_argument('--max_epoch', type=int, default=200)
     parser.add_argument('--save_interval', type=int, default=5)
+    parser.add_argument('--transform', type = bool, default = False)
 
     ## Our argument
     parser.add_argument('--seed', type=int, default=2021)
@@ -80,13 +80,12 @@ def set_seed(seed) :
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     random.seed(seed)
-    imgaug.random.seed(seed)
     print(f"seed : {seed}")
+
 
 def do_training(data_dir, val_data_dir, model_dir, device, image_size, input_size, num_workers, batch_size,
                 learning_rate, max_epoch, save_interval, project, entity, name, seed, optimizer, exp_name,
-                val_data, val_image_size, val_input_size, load):
-
+                val_data, val_image_size, val_input_size, load, transform):
     
     wandb.init(project=project, entity=entity, name = name)
     wandb.config = {
@@ -103,8 +102,7 @@ def do_training(data_dir, val_data_dir, model_dir, device, image_size, input_siz
         random.seed(worker_seed)
 
 
-    dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size)
-
+    dataset = SceneTextDataset(data_dir, split='train', image_size=image_size, crop_size=input_size, transform = transform)
     dataset = EASTDataset(dataset)
   
     num_batches = math.ceil(len(dataset) / batch_size)
@@ -275,6 +273,13 @@ def do_training(data_dir, val_data_dir, model_dir, device, image_size, input_siz
                 if cnt >= 10:
                     print(f"early stopping : not updated for 10 times")
                     break
+        else:
+            if (epoch + 1) % save_interval == 0:
+                if not osp.exists(model_dir):
+                    os.makedirs(model_dir)
+
+                ckpt_fpath = osp.join(model_dir, f'{exp_name}_latest.pth')
+                torch.save(model.state_dict(), ckpt_fpath)
 
 
         

@@ -11,10 +11,11 @@ from albumentations.pytorch import ToTensorV2
 from albumentations.augmentations.geometric.resize import LongestMaxSize, SmallestMaxSize
 from torch.utils.data import Dataset
 from shapely.geometry import Polygon
+from imageio import imread
 from tqdm import tqdm
 from augmentation import ComposedTransformation, CropMethod_1
-
 from east_dataset import generate_score_geo_maps
+
 
 
 def cal_distance(x1, y1, x2, y2):
@@ -88,7 +89,6 @@ def shrink_poly(vertices, coef=0.3):
 def get_rotate_mat(theta):
     '''positive theta value means rotate clockwise'''
     return np.array([[math.cos(theta), -math.sin(theta)], [math.sin(theta), math.cos(theta)]])
-
 
 def rotate_vertices(vertices, theta, anchor=None):
     '''rotate vertices around anchor
@@ -262,6 +262,7 @@ def rotate_all_pixels(rotate_mat, anchor_x, anchor_y, length):
 
 
 def resize_img(img, vertices, size):
+    # w,h의 비율은 그대로 가져 가면서, 이 둘 중 크기가 큰 값을 size값으로 맞춘다.
     h, w = img.height, img.width
     ratio = size / max(h, w)
     if w > h:
@@ -418,8 +419,8 @@ class SceneTextDataset2(Dataset):
         return image, word_bboxes, roi_mask
 
 class SceneTextDataset(Dataset):
-    def __init__(self, root_dir, split='train', image_size=1024, crop_size=512, color_jitter=True,
-                 normalize=True, valid=False):
+    def __init__(self, root_dir, split='train', image_size=1024, crop_size=512, color_jitter=True, normalize=True, transform = False, valid=False):
+
         with open(osp.join(root_dir, 'ufo/{}.json'.format(split)), 'r') as f:
             anno = json.load(f)
 
@@ -429,6 +430,8 @@ class SceneTextDataset(Dataset):
 
         self.image_size, self.crop_size = image_size, crop_size
         self.color_jitter, self.normalize = color_jitter, normalize
+
+        self.transform = transform
         self.valid = valid
 
     def __len__(self):
@@ -445,12 +448,29 @@ class SceneTextDataset(Dataset):
         vertices, labels = np.array(vertices, dtype=np.float32), np.array(labels, dtype=np.int64)
 
         vertices, labels = filter_vertices(vertices, labels, ignore_under=10, drop_under=1)
-
-        image = Image.open(image_fpath)
-        image, vertices = resize_img(image, vertices, self.image_size)
-        image, vertices = adjust_height(image, vertices)
-        image, vertices = rotate_img(image, vertices)
-        image, vertices = crop_img(image, vertices, labels, self.crop_size)
+        
+        
+        if self.transform:
+            image = imread(image_fpath)
+            vertices = vertices.reshape(-1, 4, 2)
+            
+            transform = ComposedTransformation(
+                rotate_range=90, crop_aspect_ratio=1.0, crop_size=(0.5, 1.0),
+                hflip=True, vflip=True, random_translate=False,
+                resize_to=768,
+                min_image_overlap=0.9, min_bbox_overlap=0.99, min_bbox_count=1, allow_partial_occurrence=True,
+                max_random_trials=1000,
+            )
+            transformed = transform(image=image, word_bboxes=vertices)
+            
+            image = Image.fromarray(transformed["image"])
+            vertices = transformed["word_bboxes"]
+        else:
+            image = Image.open(image_fpath)
+            image, vertices = resize_img(image, vertices, self.image_size)
+            image, vertices = adjust_height(image, vertices)
+            image, vertices = rotate_img(image, vertices)
+            image, vertices = crop_img(image, vertices, labels, self.crop_size)
 
         if image.mode != 'RGB':
             image = image.convert('RGB')
