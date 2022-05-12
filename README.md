@@ -56,10 +56,10 @@ template
 └──input
    └──ICDAR2017_Korean
 		  └──data
-			  	├──images
-		      └──ufo
-			        ├──train.json
-							└──val.json
+		     ├──images
+		     └──ufo
+			├──train.json
+			└──val.json
 ```
 
 ## Dataset
